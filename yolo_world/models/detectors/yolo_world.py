@@ -45,14 +45,105 @@ class YOLOWorldDetector(YOLODetector):
 
         # self.bbox_head.num_classes = self.num_test_classes
         self.bbox_head.num_classes = txt_feats[0].shape[0]
-        results_list = self.bbox_head.predict(img_feats,
-                                              txt_feats,
-                                              batch_data_samples,
-                                              rescale=rescale)
 
-        batch_data_samples = self.add_pred_to_datasample(
-            batch_data_samples, results_list)
+        # Call the new head methods
+        raw_preds_and_protos = self.bbox_head.get_raw_predictions_and_protos(
+            img_feats, txt_feats, batch_data_samples)
+
+        # Pass necessary items from raw_preds_and_protos to NMS method
+        # cfg needs to be passed to NMS method, it's typically self.test_cfg for the head
+        # but predict() takes a rescale arg, not the full test_cfg.
+        # The head's test_cfg is usually already configured.
+        # Using self.bbox_head.test_cfg if available, or None if predict is called without specific cfg.
+        # However, YOLOWorldSegHead.perform_nms_and_get_boxes_coeffs expects a cfg.
+        # The original bbox_head.predict took 'cfg' which was self.test_cfg.
+        # Let's assume self.bbox_head has access to its test_cfg.
+
+        pred_instances_list = self.bbox_head.perform_nms_and_get_boxes_coeffs(
+            flatten_cls_scores_logits=raw_preds_and_protos["flatten_cls_scores_logits"],
+            flatten_decoded_bboxes_pixels=raw_preds_and_protos["flatten_decoded_bboxes_pixels"],
+            flatten_objectness_sigmoid=raw_preds_and_protos["flatten_objectness_sigmoid"],
+            flatten_coeff_preds=raw_preds_and_protos["flatten_coeff_preds"],
+            batch_img_metas=raw_preds_and_protos["batch_img_metas"],
+            num_imgs=raw_preds_and_protos["num_imgs"],
+            cfg=self.bbox_head.test_cfg # Pass the head's test_cfg for NMS parameters
+        )
+
+        # The original predict method updated batch_data_samples.
+        # Here, we need to return a structure that demo/predict.py can use.
+        # This structure should contain pred_instances_list and mask_protos.
+        # batch_data_samples[i].pred_instances = pred_instances_list[i] (after converting InstanceData to desired format if needed)
+        # For now, let's prepare a list of dicts, one per image, or a single dict if batch size is 1.
+        # The output of model.test_step(data_batch)[0] in demo/predict.py expects a SampleList like structure.
+        # So, we should update batch_data_samples.
+
+        for i, data_sample in enumerate(batch_data_samples):
+            # pred_instances_list[i] is an InstanceData object
+            # It contains 'bboxes', 'scores', 'labels', 'coeffs'
+            data_sample.pred_instances = pred_instances_list[i]
+            # We also need to carry mask_protos. Store it per data_sample or return separately.
+            # Storing on data_sample is convenient if it's used per image.
+            # mask_protos is (num_imgs, mask_channels, proto_h, proto_w)
+            data_sample.mask_protos = raw_preds_and_protos["mask_protos"][i]
+            # Store other raw components if needed by generate_masks_for_fused_results
+            data_sample.img_metas = raw_preds_and_protos["batch_img_metas"][i] # Already on data_sample.metainfo
+
+        # The original YOLODetector.predict returns batch_data_samples
         return batch_data_samples
+
+    def generate_masks_for_fused_results(self,
+                                         batch_fused_instances: List[InstanceData],
+                                         batch_mask_protos: Tensor,
+                                         batch_img_metas: List[dict], # Extracted from original batch_data_samples
+                                         # batch_data_samples: SampleList, # Original data samples
+                                         rescale: bool = True) -> SampleList:
+        """
+        Generates masks for fused bounding boxes using stored mask protos and coefficients.
+        Updates batch_data_samples with the final predictions including masks.
+        """
+        # We need to call bbox_head.generate_masks_from_coeffs_and_boxes
+        # This method expects:
+        # - batch_results_input: List[InstanceData] (fused bboxes, scores, labels, coeffs)
+        # - mask_protos_batch: Tensor (num_imgs, mask_channels, proto_h, proto_w)
+        # - batch_img_metas: List[dict]
+        # - cfg: ConfigDict (test_cfg from head)
+        # - rescale: bool
+
+        # The batch_fused_instances already contains bboxes, scores, labels, and associated coeffs.
+        # batch_mask_protos is passed directly.
+        # batch_img_metas is passed directly.
+
+        final_pred_instances_with_masks = self.bbox_head.generate_masks_from_coeffs_and_boxes(
+            batch_results_input=batch_fused_instances,
+            mask_protos_batch=batch_mask_protos,
+            batch_img_metas=batch_img_metas,
+            cfg=self.bbox_head.test_cfg, # Use head's test_cfg
+            rescale=rescale
+        )
+
+        # Need to construct a SampleList or update the original batch_data_samples
+        # For simplicity, let's create a new list of SampleData/InstanceData to return,
+        # as modifying the original batch_data_samples might be complex if it's not passed in.
+        # However, the predict method returns batch_data_samples.
+        # Let's assume we need to return a SampleList like structure.
+        # We can create new data_samples and populate them.
+
+        # Create a new SampleList to return
+        # This part depends on how `demo/predict.py` expects the output.
+        # If it expects a modified version of the original `batch_data_samples`,
+        # then this method should take `batch_data_samples` as input and modify `data_sample.pred_instances`.
+
+        # For now, let's assume this method is called with all necessary components
+        # and returns a list of InstanceData which will then be put into data_samples by the caller.
+        # The `inference` function in demo/predict.py currently does:
+        # `output = model.test_step(data_batch)[0]` -> this is a `DetDataSample`
+        # `pred_instances = output.pred_instances`
+        # So, this method should ideally return a list of DetDataSample, or allow the caller to construct it.
+
+        # Let's make this function return the list of InstanceData with masks.
+        # The caller (`demo/predict.py`) will then update its `DetDataSample`.
+        return final_pred_instances_with_masks
+
 
     def reparameterize(self, texts: List[List[str]]) -> None:
         # encode text embeddings into the detector

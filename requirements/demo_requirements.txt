@@ -1,2 +1,5 @@
 gradio==4.16.0
 supervision
+ensemble-boxes
+tqdm
+opencv-python-headless
