@@ -6,7 +6,7 @@ from torch import Tensor
 from mmdet.structures import OptSampleList, SampleList
 from mmyolo.models.detectors import YOLODetector
 from mmyolo.registry import MODELS
-
+from mmengine.structures import InstanceData
 
 @MODELS.register_module()
 class YOLOWorldDetector(YOLODetector):
