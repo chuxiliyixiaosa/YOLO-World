@@ -631,7 +631,7 @@ class YOLOWorldSegHead(YOLOv5InsHead):
         decoded_bboxes_grid_units_list = []
         for i in range(num_imgs):
             # self.bbox_coder is DistancePointBBoxCoder. decode(points(N,2), pred_bboxes(N,4)) -> xyxy boxes (N,4)
-            decoded_bboxes_single_img_grid = self.bbox_coder.decode(flatten_priors, flatten_bbox_preds_unitless[i])
+            decoded_bboxes_single_img_grid = self.bbox_coder.decode(flatten_priors, flatten_bbox_preds_unitless[i], self.prior_generator.strides[i])
             decoded_bboxes_grid_units_list.append(decoded_bboxes_single_img_grid)
         
         flatten_decoded_bboxes_grid_units = torch.stack(decoded_bboxes_grid_units_list) # (num_imgs, total_priors, 4)
