@@ -1,0 +1,9 @@
+opencv-python==4.11.0.86
+opencv-python-headless==4.11.0.86
+# mmcv==2.0.0
+# mmdet==3.0.0
+mmengine==0.10.3
+mmyolo==0.6.0
+timm==0.6.13
+transformers==4.36.2
+albumentations
