@@ -582,12 +582,14 @@ class YOLOWorldSegHead(YOLOv5InsHead):
 
         # Strides for each prior
         mlvl_strides = []
-        for featmap_size, stride_val in zip(featmap_sizes, self.prior_generator.strides):
+        for featmap_size, stride_val_tuple in zip(featmap_sizes, self.prior_generator.strides):
             # In YOLOWorldSegHeadModule, predictions are not repeated for num_base_priors like in standard YOLOv5.
             # Each grid cell directly produces one set of predictions.
             num_base_priors = 1
+            # stride_val_tuple is (stride_w, stride_h), use stride_w assuming square strides or consistent scaling
+            actual_stride_to_fill = stride_val_tuple[0]
             mlvl_strides.append(
-                flatten_priors.new_full((featmap_size.numel() * num_base_priors, ), stride_val)
+                flatten_priors.new_full((featmap_size.numel() * num_base_priors, ), actual_stride_to_fill)
             )
         flatten_stride = torch.cat(mlvl_strides) # Shape: (total_priors, )
 
